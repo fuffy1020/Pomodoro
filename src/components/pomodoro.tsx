@@ -630,25 +630,34 @@ function Workspace({ user }: { user: User | null }) {
                 <SkipForward size={21} />
               </IconButton>
             </div>
-            <div
-              className="cycle-dots"
-              aria-label={`已完成 ${count % settings.cycles} 次，本輪共 ${settings.cycles} 次`}
-            >
-              {Array.from({ length: settings.cycles }, (_, i) => (
-                <span
-                  key={i}
-                  className={
-                    i < count % settings.cycles ||
-                    (phase === "long" &&
-                      count > 0 &&
-                      count % settings.cycles === 0)
-                      ? "filled"
-                      : ""
-                  }
-                >
-                  {i < count % settings.cycles ? <Check size={11} /> : null}
-                </span>
-              ))}
+            <div className="timer-bottom">
+              <div
+                className="cycle-dots"
+                aria-label={`已完成 ${count % settings.cycles} 次，本輪共 ${settings.cycles} 次`}
+              >
+                {Array.from({ length: settings.cycles }, (_, i) => (
+                  <span
+                    key={i}
+                    className={
+                      i < count % settings.cycles ||
+                      (phase === "long" &&
+                        count > 0 &&
+                        count % settings.cycles === 0)
+                        ? "filled"
+                        : ""
+                    }
+                  >
+                    {i < count % settings.cycles ? <Check size={11} /> : null}
+                  </span>
+                ))}
+              </div>
+              <div
+                className="timer-total"
+                aria-label={`今日加總 ${formatDuration(todayTotal)}`}
+              >
+                <span>今日加總</span>
+                <strong>{formatDuration(todayTotal)}</strong>
+              </div>
             </div>
           </section>
         )}
