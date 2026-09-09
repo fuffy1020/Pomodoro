@@ -372,6 +372,37 @@ function Workspace({ user }: { user: User | null }) {
     (n, s) => n + secondsOnDay(s, today),
     0,
   );
+  const todayStart = new Date(today);
+  todayStart.setHours(0, 0, 0, 0);
+  const tomorrowStart = addDays(todayStart, 1);
+  const millisecondsToday = (startAt: number, endAt: number) =>
+    Math.max(
+      0,
+      Math.min(endAt, +tomorrowStart) - Math.max(startAt, +todayStart),
+    );
+  let currentFocusToday = 0;
+  if (timer?.phase === "focus") {
+    const recordedMs = timer.segments.reduce(
+      (sum, segment) =>
+        sum +
+        millisecondsToday(Date.parse(segment.start), Date.parse(segment.end)),
+      0,
+    );
+    const previousMs = timer.segments.reduce(
+      (sum, segment) =>
+        sum + Date.parse(segment.end) - Date.parse(segment.start),
+      0,
+    );
+    const runningMs =
+      timer.runStartedAt === null
+        ? 0
+        : millisecondsToday(
+            timer.runStartedAt,
+            Math.min(now, timer.runStartedAt + timer.totalMs - previousMs),
+          );
+    currentFocusToday = (recordedMs + runningMs) / 1000;
+  }
+  const displayedTodayTotal = todayTotal + currentFocusToday;
   const weekSessions = records.sessions.filter((s) =>
     days.some((d) => secondsOnDay(s, d) > 0),
   );
@@ -653,10 +684,10 @@ function Workspace({ user }: { user: User | null }) {
               </div>
               <div
                 className="timer-total"
-                aria-label={`今日加總 ${formatDuration(todayTotal)}`}
+                aria-label={`今日加總 ${formatDuration(displayedTodayTotal)}`}
               >
                 <span>今日加總</span>
-                <strong>{formatDuration(todayTotal)}</strong>
+                <strong>{formatDuration(displayedTodayTotal)}</strong>
               </div>
             </div>
           </section>
