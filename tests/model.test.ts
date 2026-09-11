@@ -108,6 +108,23 @@ test("API validation rejects forged durations and overlapping segments", () => {
     false,
   );
 });
+test("database timestamps with timezone offsets can be synced to the browser", () => {
+  const databaseSession = {
+    id: "00000000-0000-4000-8000-000000000000",
+    title: "跨裝置專注",
+    started_at: "2026-09-10T12:00:00+00:00",
+    ended_at: "2026-09-10T12:25:00+00:00",
+    duration_seconds: 1500,
+    completed: true,
+    segments: [
+      {
+        start: "2026-09-10T12:00:00+00:00",
+        end: "2026-09-10T12:25:00+00:00",
+      },
+    ],
+  };
+  assert.equal(sessionSchema.safeParse(databaseSession).success, true);
+});
 test("sub-second focus is not saved and reloading a paused timer preserves elapsed time", () => {
   const timer = { ...newTimer(DEFAULT_SETTINGS), runStartedAt: base };
   assert.equal(

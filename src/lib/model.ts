@@ -15,15 +15,16 @@ export const DEFAULT_SETTINGS: Settings = {
   cycles: 4,
   sound: true,
 };
+const timestampSchema = z.iso.datetime({ offset: true });
 export const segmentSchema = z
-  .object({ start: z.iso.datetime(), end: z.iso.datetime() })
+  .object({ start: timestampSchema, end: timestampSchema })
   .refine((s) => Date.parse(s.end) > Date.parse(s.start), "Invalid interval");
 export const sessionSchema = z
   .object({
     id: z.uuid(),
     title: z.string().trim().max(120),
-    started_at: z.iso.datetime(),
-    ended_at: z.iso.datetime(),
+    started_at: timestampSchema,
+    ended_at: timestampSchema,
     duration_seconds: z.number().int().min(1).max(10800),
     completed: z.boolean(),
     segments: z.array(segmentSchema).min(1).max(500),
