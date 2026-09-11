@@ -7,6 +7,7 @@ import {
   ArrowDownToLine,
   ArrowRight,
   BarChart3,
+  BellOff,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -150,6 +151,10 @@ function Workspace({ user }: { user: User | null }) {
   const [authMessage, setAuthMessage] = useState("");
   const [sending, setSending] = useState(false);
   const audioRef = useRef<AudioContext | null>(null);
+  const alarmIntervalRef = useRef<number | null>(null);
+  const alarmNodesRef = useRef<OscillatorNode[]>([]);
+  const alarmGenerationRef = useRef(0);
+  const [alarmActive, setAlarmActive] = useState(false);
   const saveTimer = useCallback(
     (value: Timer) => {
       timerRef.current = value;
@@ -239,29 +244,118 @@ function Workspace({ user }: { user: User | null }) {
       window.removeEventListener("storage", listener);
     };
   }, [scope]);
-  const ring = useCallback(() => {
-    if (!settingsRef.current.sound || !audioRef.current) return;
-    const context = audioRef.current;
-    if (context.state !== "running") return;
-    [0, 0.22, 0.44].forEach((delay, i) => {
+  const activateAudio = useCallback(async () => {
+    if (!settingsRef.current.sound) return null;
+    try {
+      audioRef.current ??= new AudioContext();
+      if (audioRef.current.state === "suspended") {
+        await audioRef.current.resume();
+      }
+      return audioRef.current.state === "running" ? audioRef.current : null;
+    } catch {
+      return null;
+    }
+  }, []);
+  const playTone = useCallback(
+    (frequency: number, delay: number, duration: number, volume: number) => {
+      const context = audioRef.current;
+      if (!settingsRef.current.sound || !context || context.state !== "running")
+        return null;
       const oscillator = context.createOscillator();
       const gain = context.createGain();
+      const startsAt = context.currentTime + delay;
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, startsAt);
       oscillator.connect(gain);
       gain.connect(context.destination);
-      oscillator.frequency.value = [660, 880, 990][i];
-      gain.gain.setValueAtTime(0.0001, context.currentTime + delay);
-      gain.gain.exponentialRampToValueAtTime(
-        0.13,
-        context.currentTime + delay + 0.02,
-      );
-      gain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        context.currentTime + delay + 0.3,
-      );
-      oscillator.start(context.currentTime + delay);
-      oscillator.stop(context.currentTime + delay + 0.31);
+      gain.gain.setValueAtTime(0.0001, startsAt);
+      gain.gain.exponentialRampToValueAtTime(volume, startsAt + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + duration);
+      oscillator.start(startsAt);
+      oscillator.stop(startsAt + duration + 0.02);
+      return oscillator;
+    },
+    [],
+  );
+  const playControlSound = useCallback(
+    (action: "start" | "pause") => {
+      const notes = action === "start" ? [520, 700] : [700, 440];
+      notes.forEach((frequency, index) => {
+        playTone(frequency, index * 0.09, 0.11, 0.065);
+      });
+    },
+    [playTone],
+  );
+  const stopAlarm = useCallback(() => {
+    alarmGenerationRef.current += 1;
+    if (alarmIntervalRef.current !== null) {
+      window.clearInterval(alarmIntervalRef.current);
+      alarmIntervalRef.current = null;
+    }
+    alarmNodesRef.current.forEach((oscillator) => {
+      try {
+        oscillator.stop();
+      } catch {
+        // The oscillator may already have finished naturally.
+      }
+      oscillator.disconnect();
     });
+    alarmNodesRef.current = [];
+    setAlarmActive(false);
   }, []);
+  const playAlarmPulse = useCallback(() => {
+    [740, 988, 740].forEach((frequency, index) => {
+      const oscillator = playTone(frequency, index * 0.2, 0.24, 0.12);
+      if (!oscillator) return;
+      alarmNodesRef.current.push(oscillator);
+      oscillator.addEventListener(
+        "ended",
+        () => {
+          alarmNodesRef.current = alarmNodesRef.current.filter(
+            (node) => node !== oscillator,
+          );
+        },
+        { once: true },
+      );
+    });
+  }, [playTone]);
+  const startAlarm = useCallback(() => {
+    stopAlarm();
+    if (!settingsRef.current.sound || !audioRef.current) return;
+    const generation = alarmGenerationRef.current;
+    const begin = () => {
+      if (
+        generation !== alarmGenerationRef.current ||
+        audioRef.current?.state !== "running"
+      )
+        return;
+      setAlarmActive(true);
+      playAlarmPulse();
+      alarmIntervalRef.current = window.setInterval(playAlarmPulse, 1100);
+    };
+    if (audioRef.current.state === "running") begin();
+    else
+      void audioRef.current
+        .resume()
+        .then(begin)
+        .catch(() => undefined);
+  }, [playAlarmPulse, stopAlarm]);
+  useEffect(
+    () => () => {
+      if (alarmIntervalRef.current !== null) {
+        window.clearInterval(alarmIntervalRef.current);
+      }
+      alarmNodesRef.current.forEach((oscillator) => {
+        try {
+          oscillator.stop();
+        } catch {
+          // The oscillator may already have finished naturally.
+        }
+      });
+      void audioRef.current?.close();
+    },
+    [],
+  );
   const finish = useCallback(
     (complete: boolean) => {
       const current = timerRef.current;
@@ -279,9 +373,10 @@ function Workspace({ user }: { user: User | null }) {
           ? `已儲存 ${formatDuration(result.session?.duration_seconds ?? 0)}專注`
           : "休息結束",
       );
-      if (complete) ring();
+      if (complete) startAlarm();
+      else stopAlarm();
     },
-    [records.add, ring, saveTimer],
+    [records.add, saveTimer, startAlarm, stopAlarm],
   );
   useEffect(() => {
     const tick = () => {
@@ -317,23 +412,24 @@ function Workspace({ user }: { user: User | null }) {
   const toggleTimer = useCallback(() => {
     const current = timerRef.current;
     if (!current || !owner) return;
-    if (current.runStartedAt !== null)
+    stopAlarm();
+    if (current.runStartedAt !== null) {
       saveTimer(pauseTimer(current, Date.now()));
-    else {
-      try {
-        audioRef.current ??= new AudioContext();
-        void audioRef.current.resume();
-      } catch {
-        /* sound unavailable */
-      }
+      void activateAudio().then((context) => {
+        if (context) playControlSound("pause");
+      });
+    } else {
       saveTimer({
         ...current,
         runStartedAt: Date.now(),
         startedAt: current.startedAt ?? Date.now(),
       });
+      void activateAudio().then((context) => {
+        if (context) playControlSound("start");
+      });
     }
     setNotice("");
-  }, [owner, saveTimer]);
+  }, [activateAudio, owner, playControlSound, saveTimer, stopAlarm]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (
@@ -358,6 +454,7 @@ function Workspace({ user }: { user: User | null }) {
       !confirm("切換階段會放棄目前未儲存的時間。要繼續嗎？")
     )
       return;
+    stopAlarm();
     saveTimer(newTimer(settings, phase, timer.completedCount));
     setNotice("");
   };
@@ -424,6 +521,7 @@ function Workspace({ user }: { user: User | null }) {
   const phase = timer?.phase ?? "focus";
   const count = timer?.completedCount ?? 0;
   const updateSettings = (next: Settings) => {
+    if (!next.sound) stopAlarm();
     settingsRef.current = next;
     setSettings(next);
     try {
@@ -547,12 +645,24 @@ function Workspace({ user }: { user: User | null }) {
               <IconButton
                 label={`提示音${settings.sound ? "開啟" : "關閉"}`}
                 aria-pressed={settings.sound}
-                onClick={() =>
-                  updateSettings({ ...settings, sound: !settings.sound })
-                }
+                onClick={() => {
+                  const sound = !settings.sound;
+                  updateSettings({ ...settings, sound });
+                  if (sound) void activateAudio();
+                }}
               >
                 {settings.sound ? <Volume2 size={18} /> : <VolumeX size={18} />}
               </IconButton>
+              {alarmActive && (
+                <button
+                  className="stop-alarm-button"
+                  type="button"
+                  onClick={stopAlarm}
+                >
+                  <BellOff size={16} />
+                  關閉鬧鈴
+                </button>
+              )}
               <IconButton label="計時設定" onClick={() => setModal("settings")}>
                 <Settings2 size={19} />
               </IconButton>
@@ -620,12 +730,14 @@ function Workspace({ user }: { user: User | null }) {
                 label="重設計時（不儲存）"
                 disabled={!owner}
                 onClick={() => {
-                  if (
+                  const shouldReset =
                     timer &&
                     (elapsed(timer, now) === 0 ||
-                      confirm("重設會放棄這次尚未儲存的專注時間，確定重設？"))
-                  )
+                      confirm("重設會放棄這次尚未儲存的專注時間，確定重設？"));
+                  if (shouldReset) {
+                    stopAlarm();
                     saveTimer(newTimer(settings, phase, count));
+                  }
                 }}
               >
                 <RotateCcw size={21} />

@@ -250,6 +250,31 @@ h1 {
   justify-content: space-between;
   align-items: center;
 }
+.stop-alarm-button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: var(--green);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 0 0 0 #245c4b45;
+  animation: alarm-attention 1.1s ease-out infinite;
+}
+.stop-alarm-button:hover {
+  background: #174736;
+}
+.break-mode .stop-alarm-button {
+  background: #486c81;
+  box-shadow: 0 0 0 0 #486c8145;
+}
+.break-mode .stop-alarm-button:hover {
+  background: #36576b;
+}
 .section-kicker {
   font-size: 12px;
   letter-spacing: 1px;
@@ -1005,6 +1030,11 @@ dialog::backdrop {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+@keyframes alarm-attention {
+  55% {
+    box-shadow: 0 0 0 8px transparent;
   }
 }
 @media (min-width: 1500px) {
