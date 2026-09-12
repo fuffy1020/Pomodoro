@@ -37,6 +37,7 @@ import {
   newTimer,
   pauseTimer,
   Phase,
+  resetIdleTimerForNewDay,
   secondsOnDay,
   Settings,
   Timer,
@@ -187,7 +188,7 @@ function Workspace({ user }: { user: User | null }) {
     }
     settingsRef.current = loadedSettings;
     setSettings(loadedSettings);
-    const load = () => {
+    const load = (persist = false) => {
       let restored: Timer | null = null;
       try {
         const raw = JSON.parse(
@@ -209,14 +210,44 @@ function Workspace({ user }: { user: User | null }) {
           typeof raw.id === "string" &&
           typeof raw.title === "string" &&
           Number.isInteger(raw.completedCount)
-        )
-          restored = raw;
+        ) {
+          const lastSegment = raw.segments.at(-1);
+          const legacyTimestamp = Number.isFinite(raw.startedAt)
+            ? raw.startedAt
+            : lastSegment
+              ? Date.parse(lastSegment.end)
+              : null;
+          const cycleDate =
+            typeof raw.cycleDate === "string" &&
+            /^\d{4}-\d{2}-\d{2}$/.test(raw.cycleDate)
+              ? raw.cycleDate
+              : legacyTimestamp !== null
+                ? dateKey(new Date(legacyTimestamp))
+                : raw.phase === "focus" && raw.completedCount === 0
+                  ? dateKey(new Date())
+                  : "";
+          restored = resetIdleTimerForNewDay(
+            { ...raw, cycleDate },
+            loadedSettings,
+            Date.now(),
+          );
+        }
       } catch {
         /* defaults */
       }
       const value = restored ?? newTimer(loadedSettings);
       timerRef.current = value;
       setTimer(value);
+      if (persist) {
+        try {
+          localStorage.setItem(
+            `pomodoro:timer:${scope}`,
+            JSON.stringify(value),
+          );
+        } catch {
+          setNotice("無法更新每日計時狀態，重新整理後可能遺失進度。");
+        }
+      }
     };
     load();
     let release: (() => void) | undefined;
@@ -224,7 +255,7 @@ function Workspace({ user }: { user: User | null }) {
     if (navigator.locks)
       void navigator.locks.request(`pomodoro:timer-lock:${scope}`, async () => {
         if (cancelled) return;
-        load();
+        load(true);
         setOwner(true);
         await new Promise<void>((resolve) => {
           release = resolve;
@@ -383,6 +414,19 @@ function Workspace({ user }: { user: User | null }) {
       const time = Date.now();
       setNow(time);
       const current = timerRef.current;
+      if (owner && current) {
+        const currentDayTimer = resetIdleTimerForNewDay(
+          current,
+          settingsRef.current,
+          time,
+        );
+        if (currentDayTimer !== current) {
+          stopAlarm();
+          saveTimer(currentDayTimer);
+          setNotice("");
+          return;
+        }
+      }
       if (
         owner &&
         records.ready &&
@@ -399,7 +443,7 @@ function Workspace({ user }: { user: User | null }) {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [owner, records.ready, finish]);
+  }, [finish, owner, records.ready, saveTimer, stopAlarm]);
   const remaining = timer
     ? Math.max(0, Math.ceil((timer.totalMs - elapsed(timer, now)) / 1000))
     : settings.focus * 60;

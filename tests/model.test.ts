@@ -9,6 +9,7 @@ import {
   finishTimer,
   newTimer,
   pauseTimer,
+  resetIdleTimerForNewDay,
   secondsOnDay,
   sessionSchema,
   weekStart,
@@ -60,6 +61,37 @@ test("every fourth completed focus leads to a long break; rests are never record
     assert.equal(rest.timer.phase, "focus");
     timer = rest.timer;
   }
+});
+test("a new day resets an idle break and completed tomato count", () => {
+  const yesterday = newTimer(DEFAULT_SETTINGS, "short", 2, base);
+  const today = base + 24 * 60 * 60 * 1000;
+  const reset = resetIdleTimerForNewDay(yesterday, DEFAULT_SETTINGS, today);
+  assert.equal(reset.phase, "focus");
+  assert.equal(reset.completedCount, 0);
+  assert.equal(reset.cycleDate, dateKey(new Date(today)));
+  assert.notEqual(reset.id, yesterday.id);
+  const migrated = resetIdleTimerForNewDay(
+    { ...yesterday, cycleDate: "" },
+    DEFAULT_SETTINGS,
+    today,
+  );
+  assert.equal(migrated.phase, "focus");
+  assert.equal(migrated.completedCount, 0);
+});
+test("a focus already in progress can cross midnight and starts today's count", () => {
+  const running = {
+    ...newTimer(DEFAULT_SETTINGS, "focus", 2, base),
+    runStartedAt: base,
+    startedAt: base,
+  };
+  const today = base + 24 * 60 * 60 * 1000;
+  assert.equal(
+    resetIdleTimerForNewDay(running, DEFAULT_SETTINGS, today),
+    running,
+  );
+  const result = finishTimer(running, DEFAULT_SETTINGS, today, true);
+  assert.equal(result.timer.completedCount, 1);
+  assert.equal(result.timer.cycleDate, dateKey(new Date(today)));
 });
 test("cross-midnight focus splits at local midnight and excludes pauses", () => {
   const date = new Date(2026, 8, 9, 23, 50);

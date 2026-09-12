@@ -57,11 +57,13 @@ export type Timer = {
   id: string;
   title: string;
   completedCount: number;
+  cycleDate: string;
 };
 export function newTimer(
   settings: Settings,
   phase: Phase = "focus",
   count = 0,
+  now = Date.now(),
 ): Timer {
   return {
     phase,
@@ -72,6 +74,7 @@ export function newTimer(
     id: crypto.randomUUID(),
     title: "",
     completedCount: count,
+    cycleDate: dateKey(new Date(now)),
   };
 }
 export function elapsed(timer: Timer, now: number) {
@@ -114,8 +117,9 @@ export function finishTimer(
 ): { timer: Timer; session: FocusSession | null } {
   const stopped = pauseTimer(timer, now);
   const seconds = Math.floor(elapsed(stopped, now) / 1000);
-  const count =
-    timer.completedCount + (timer.phase === "focus" && completed ? 1 : 0);
+  const previousCount =
+    timer.cycleDate === dateKey(new Date(now)) ? timer.completedCount : 0;
+  const count = previousCount + (timer.phase === "focus" && completed ? 1 : 0);
   const next: Phase =
     timer.phase === "focus"
       ? completed && count % settings.cycles === 0
@@ -134,10 +138,19 @@ export function finishTimer(
           segments: stopped.segments,
         }
       : null;
-  return { timer: newTimer(settings, next, count), session };
+  return { timer: newTimer(settings, next, count, now), session };
 }
 export function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+export function resetIdleTimerForNewDay(
+  timer: Timer,
+  settings: Settings,
+  now: number,
+) {
+  if (timer.cycleDate === dateKey(new Date(now)) || elapsed(timer, now) > 0)
+    return timer;
+  return newTimer(settings, "focus", 0, now);
 }
 export function weekStart(date: Date) {
   const d = new Date(date);
